@@ -23,3 +23,5 @@ Roadmap: real HiRISE terrain of Jezero, THEMIS thermal inertia and the geologic 
 Team: Team Hugo 
 
 Acknowledgements: NASA Space Apps Challenge 2026. License: MIT.
+
+AI assistance: This project was built with AI assistance. Claude (Anthropic) helped plan the idea, draft the slides and write build prompts. Gemini in Google AI Studio generated and edited the app code. The team directed the work, reviewed and tested the result. The cover illustration in the project slides was drawn with AI and is labelled. No AI-generated video or audio was used.
