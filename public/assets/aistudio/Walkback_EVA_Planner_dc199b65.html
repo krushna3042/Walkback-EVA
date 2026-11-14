@@ -1,0 +1,630 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Walkback EVA Planner</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Layout concept: three-column ops console. Left = mission limits, centre = map with layer switch,
+   right = the answer (budget, reach, three routes, briefing, data provenance). Dark-first, high contrast. */
+:root{
+  --bg:#0d1115; --panel:#141a20; --panel-2:#1b232b; --line:#2a3641;
+  --fg:#e8edeb; --fg-dim:#95a3ad; --accent:#62c7d6; --accent-ink:#04252a;
+  --go:#58c08f; --warn:#e6b450; --stop:#ef6a5e; --info:#5aa2ff;
+  --route-fast:#f4f6f5; --route-safe:#62c7d6; --route-sci:#c79bff;
+  --font-ui:'Barlow Semi Condensed',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+  --font-data:'IBM Plex Mono',ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#eceff0; --panel:#fbfcfc; --panel-2:#eff2f3; --line:#cdd6da;
+    --fg:#14202a; --fg-dim:#56666f; --accent:#0a7686; --accent-ink:#ffffff;
+    --go:#1b7f55; --warn:#94620a; --stop:#bb3328; --info:#1f63c4;
+    color-scheme:light;
+  }
+}
+:root[data-theme="light"]{
+  --bg:#eceff0; --panel:#fbfcfc; --panel-2:#eff2f3; --line:#cdd6da;
+  --fg:#14202a; --fg-dim:#56666f; --accent:#0a7686; --accent-ink:#ffffff;
+  --go:#1b7f55; --warn:#94620a; --stop:#bb3328; --info:#1f63c4;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font-family:var(--font-ui); font-size:15px; line-height:1.4;
+  padding-block:0;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));
+  padding-right:max(16px, env(safe-area-inset-right, 0px));
+}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.mono{font-family:var(--font-data); font-variant-numeric:tabular-nums}
+
+.app{display:grid; grid-template-columns:minmax(0,1fr); gap:12px; padding-block:12px}
+.top{display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:2px 0}
+.brand{display:flex; align-items:baseline; gap:10px; min-width:0}
+.brand h1{margin:0; font-size:22px; letter-spacing:.14em; font-weight:700; text-transform:uppercase}
+.brand span{color:var(--fg-dim); font-size:14px}
+.top .grow{flex:1}
+.tag{display:inline-flex; align-items:center; gap:6px; font-family:var(--font-data); font-size:11.5px; letter-spacing:.04em; text-transform:uppercase;
+  padding:3px 8px; border:1px solid var(--warn); color:var(--warn); border-radius:3px}
+.btn{background:var(--panel-2); border:1px solid var(--line); border-radius:4px; padding:6px 12px; cursor:pointer; font-weight:500}
+.btn:hover{border-color:var(--accent)}
+
+.panel{background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:14px; min-width:0}
+.col{display:flex; flex-direction:column; gap:12px; min-width:0}
+h2{margin:0 0 10px; font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--fg-dim); font-weight:600}
+.results{order:2} .mapcol{order:1} .inputs{order:3}
+
+/* inputs */
+.ctl{display:grid; grid-template-columns:1fr auto; column-gap:8px; row-gap:2px; margin-bottom:12px}
+.ctl label{font-weight:500}
+.ctl output{font-family:var(--font-data); font-variant-numeric:tabular-nums; color:var(--accent)}
+.ctl input[type=range]{grid-column:1/-1; width:100%; accent-color:var(--accent); margin:2px 0 0}
+.hint{color:var(--fg-dim); font-size:13px; margin:0}
+.seg{display:flex; border:1px solid var(--line); border-radius:4px; overflow:hidden}
+.seg button{flex:1; background:transparent; border:0; padding:6px 8px; cursor:pointer; color:var(--fg-dim); font-weight:500}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--accent); color:var(--accent-ink)}
+.targets{display:flex; flex-direction:column; gap:6px; margin:0; padding:0; list-style:none}
+.targets button{width:100%; text-align:left; display:grid; grid-template-columns:auto 1fr auto; gap:8px; align-items:center;
+  background:var(--panel-2); border:1px solid var(--line); border-radius:4px; padding:7px 9px; cursor:pointer}
+.targets button:hover,.targets button[aria-pressed="true"]{border-color:var(--info)}
+.targets .id{font-family:var(--font-data); color:var(--info); font-weight:500}
+.targets .nm{min-width:0; line-height:1.2}
+.targets .nm small{display:block; color:var(--fg-dim); font-size:12.5px}
+.targets .v{font-family:var(--font-data); font-size:12.5px; color:var(--fg-dim)}
+
+/* map */
+.toolbar{display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; margin-bottom:10px}
+.toolbar .seg{flex:0 1 auto}
+.checks{display:flex; flex-wrap:wrap; gap:4px 14px}
+.checks label{display:inline-flex; align-items:center; gap:6px; cursor:pointer; color:var(--fg-dim)}
+.checks input{accent-color:var(--accent)}
+.map{position:relative; width:100%; aspect-ratio:170/120; max-width:100%; border-radius:4px; overflow:hidden; background:#2a211c; cursor:crosshair; border:1px solid var(--line); touch-action:manipulation}
+.map canvas{display:block; width:100%; height:100%}
+.map svg{position:absolute; inset:0; width:100%; height:100%; pointer-events:none}
+.map svg polyline{fill:none; stroke-linecap:round; stroke-linejoin:round; vector-effect:non-scaling-stroke}
+#markers{position:absolute; inset:0; pointer-events:none}
+.mk{position:absolute; transform:translate(-50%,-50%)}
+.mk span{position:absolute; left:50%; bottom:calc(100% + 3px); transform:translateX(-50%); font-family:var(--font-data); font-size:11px; font-weight:500; color:#fff;
+  text-shadow:0 0 3px #000,0 0 3px #000,0 0 2px #000; white-space:nowrap; letter-spacing:.04em}
+.mk.hab i{display:block; width:14px; height:14px; background:var(--accent); border:2px solid #fff; border-radius:2px; box-shadow:0 0 0 1px #000}
+.mk.tgt i{display:block; width:20px; height:20px; border:2.5px solid #fff; border-radius:50%; box-shadow:0 0 0 1px #000, inset 0 0 0 1px #000; position:relative}
+.mk.tgt i::after{content:""; position:absolute; inset:5px; background:#fff; border-radius:50%; box-shadow:0 0 0 1px #000}
+.mk.sci i{display:block; width:10px; height:10px; background:var(--info); border:1.5px solid #fff; transform:rotate(45deg); box-shadow:0 0 0 1px #000}
+.mk.sci span{bottom:calc(100% + 5px)}
+.map-chip{position:absolute; left:8px; top:8px; font-family:var(--font-data); font-size:11px; letter-spacing:.05em; text-transform:uppercase;
+  background:rgba(10,12,14,.78); color:#f0c25c; border:1px solid #f0c25c; border-radius:3px; padding:2px 7px; pointer-events:none}
+.scale{position:absolute; left:10px; bottom:10px; display:flex; flex-direction:column; gap:2px; align-items:flex-start; pointer-events:none;
+  font-family:var(--font-data); font-size:11px; color:#fff; text-shadow:0 0 3px #000,0 0 3px #000}
+.scale i{display:block; height:5px; border:2px solid #fff; border-top:0; box-shadow:0 1px 2px #000; width:calc(100% * 1000 / 5100)}
+.scale{width:100%}
+.north{position:absolute; right:10px; top:8px; font-family:var(--font-data); font-size:11px; color:#fff; text-shadow:0 0 3px #000,0 0 3px #000; pointer-events:none}
+.readout{margin-top:10px; padding:8px 10px; background:var(--panel-2); border:1px solid var(--line); border-radius:4px; min-height:3.1em;
+  font-family:var(--font-data); font-size:12.5px; line-height:1.5; color:var(--fg)}
+.readout b{color:var(--accent); font-weight:500}
+.legend{display:flex; flex-wrap:wrap; gap:4px 14px; margin-top:10px; color:var(--fg-dim); font-size:13px}
+.legend span{display:inline-flex; align-items:center; gap:6px}
+.legend i{display:inline-block; width:14px; height:10px; border-radius:2px; border:1px solid rgba(128,128,128,.5)}
+
+/* results */
+.budget{display:grid; grid-template-columns:1fr; gap:4px}
+.big{font-family:var(--font-data); font-size:34px; line-height:1.05; font-weight:500; font-variant-numeric:tabular-nums}
+.big small{font-size:15px; color:var(--fg-dim); font-weight:400}
+.sub{color:var(--fg-dim); margin:2px 0 0}
+.facts{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:12px}
+.fact{background:var(--panel-2); border:1px solid var(--line); border-radius:4px; padding:7px 9px}
+.fact dt{font-size:12px; color:var(--fg-dim); text-transform:uppercase; letter-spacing:.08em}
+.fact dd{margin:0; font-family:var(--font-data); font-variant-numeric:tabular-nums}
+.alert{margin-top:12px; padding:8px 10px; border-radius:4px; border:1px solid var(--stop); color:var(--stop); font-weight:500}
+.routes{display:flex; flex-direction:column; gap:8px}
+.route{display:block; width:100%; text-align:left; background:var(--panel-2); border:1px solid var(--line); border-radius:5px; padding:10px; cursor:pointer}
+.route[aria-pressed="true"]{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent)}
+.r-head{display:flex; align-items:center; gap:8px; margin-bottom:8px}
+.r-head b{font-weight:600; font-size:16px; flex:1}
+.sw{width:22px; height:6px; border-radius:3px; background:var(--c); box-shadow:0 0 0 1.5px #000}
+.pill{font-family:var(--font-data); font-size:11.5px; font-weight:500; letter-spacing:.06em; padding:2px 8px; border-radius:3px; border:1px solid currentColor}
+.pill.go{color:var(--go)} .pill.tight{color:var(--warn)} .pill.nogo{color:var(--stop)}
+.r-grid{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px 8px; margin:0}
+.r-grid div{min-width:0}
+.r-grid dt{font-size:11.5px; color:var(--fg-dim); text-transform:uppercase; letter-spacing:.08em}
+.r-grid dd{margin:0; font-family:var(--font-data); font-size:13.5px; font-variant-numeric:tabular-nums}
+.brief{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px}
+.brief li::marker{color:var(--accent)}
+.prov{width:100%; border-collapse:collapse; font-size:13.5px}
+.prov td{padding:6px 0; border-top:1px solid var(--line); vertical-align:top}
+.prov td:first-child{padding-right:10px; white-space:nowrap}
+.kind{font-family:var(--font-data); font-size:11px; letter-spacing:.05em; text-transform:uppercase; padding:1px 6px; border-radius:3px; border:1px solid currentColor}
+.kind.m{color:var(--go)} .kind.d{color:var(--info)} .kind.a{color:var(--warn)}
+
+@media (min-width:1100px){
+  .app{grid-template-columns:288px minmax(0,1fr) 360px; grid-template-rows:auto minmax(0,1fr); height:100%}
+  .top{grid-column:1/-1}
+  .inputs,.mapcol,.results{order:0; overflow-y:auto; min-height:0; padding-right:2px}
+}
+@media (prefers-reduced-motion:no-preference){ .route{transition:border-color .12s} }
+</style>
+
+<div class="app">
+  <header class="top">
+    <div class="brand"><h1>Walkback</h1><span>EVA range and route planner</span></div>
+    <span class="grow"></span>
+    <span class="tag" title="Replace with a HiRISE DTM and real layers before use">Sample terrain, not real Mars data</span>
+    <button class="btn" id="theme" type="button">Switch theme</button>
+  </header>
+
+  <aside class="col inputs" aria-label="Mission limits">
+    <section class="panel">
+      <h2>Suit resources (hours)</h2>
+      <div id="ctl-res"></div>
+      <p class="hint">The smallest of the three sets the clock. Reserve is held back and never planned against.</p>
+    </section>
+    <section class="panel">
+      <h2>Terrain limits</h2>
+      <div id="ctl-ter"></div>
+      <p class="hint">Fastest route may use anything under the hard limit. Safest and Science stay under the comfort limit when a path exists.</p>
+    </section>
+    <section class="panel">
+      <h2>Map click sets</h2>
+      <div class="seg" id="mode"><button type="button" data-m="target" aria-pressed="true">Target</button><button type="button" data-m="hab" aria-pressed="false">Habitat</button></div>
+      <p class="hint" style="margin-top:8px">Arrow keys move the target when the map has focus.</p>
+    </section>
+    <section class="panel">
+      <h2>Science targets</h2>
+      <ul class="targets" id="targets"></ul>
+    </section>
+  </aside>
+
+  <main class="col mapcol">
+    <section class="panel">
+      <div class="toolbar">
+        <div class="seg" id="layers" role="group" aria-label="Map layer">
+          <button type="button" data-l="slope" aria-pressed="true">Slope</button>
+          <button type="button" data-l="elev" aria-pressed="false">Elevation</button>
+          <button type="button" data-l="thermal" aria-pressed="false">Thermal</button>
+          <button type="button" data-l="geo" aria-pressed="false">Geology</button>
+        </div>
+        <div class="checks" id="overlays">
+          <label><input type="checkbox" id="ov-reach" checked>Reach zone</label>
+          <label><input type="checkbox" id="ov-haz">Hazards</label>
+          <label><input type="checkbox" id="ov-sci" checked>Science</label>
+          <label><input type="checkbox" id="ov-route" checked>Routes</label>
+        </div>
+      </div>
+      <div class="map" id="map" tabindex="0" role="application" aria-label="Terrain map. Click to place the target. Arrow keys move it.">
+        <canvas id="cv" width="850" height="600"></canvas>
+        <svg id="routes" viewBox="0 0 170 120" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <div id="markers"></div>
+        <div class="map-chip">Sample patch 5.1 x 3.6 km, 30 m cells</div>
+        <div class="north">N &uarr;</div>
+        <div class="scale"><i></i><span>1 km</span></div>
+      </div>
+      <div class="readout" id="readout" aria-live="off">Move over the map to read a point.</div>
+      <div class="legend" id="legend"></div>
+    </section>
+  </main>
+
+  <aside class="col results" aria-label="Plan">
+    <section class="panel">
+      <h2>Round-trip budget</h2>
+      <div class="budget">
+        <div class="big" id="b-big">0 h</div>
+        <p class="sub" id="b-sub"></p>
+      </div>
+      <dl class="facts">
+        <div class="fact"><dt>Reach zone</dt><dd id="f-area">-</dd></div>
+        <div class="fact"><dt>Farthest point</dt><dd id="f-far">-</dd></div>
+        <div class="fact"><dt>To target</dt><dd id="f-tdist">-</dd></div>
+        <div class="fact"><dt>Time at target</dt><dd id="f-stay">-</dd></div>
+      </dl>
+      <div class="alert" id="alert" hidden></div>
+    </section>
+    <section class="panel">
+      <h2>Routes to target</h2>
+      <div class="routes" id="routecards"></div>
+    </section>
+    <section class="panel">
+      <h2 id="brief-title">Briefing</h2>
+      <ul class="brief" id="brief"></ul>
+    </section>
+    <section class="panel">
+      <h2>Where the numbers come from</h2>
+      <table class="prov">
+        <tr><td><span class="kind d">Derived</span></td><td>Slope per step, from the elevation grid. Time is distance over a slope-dependent pace (Tobler-style, scaled to suit pace).</td></tr>
+        <tr><td><span class="kind m">Measured</span></td><td>Thermal inertia and geology units come from orbital instruments in the real build. Here they are sample layers.</td></tr>
+        <tr><td><span class="kind a">Assumed</span></td><td>Pace, slope limits, soft-ground slowdown (up to 45%), 20% default reserve. Set these from NASA EVA limits before any real use.</td></tr>
+      </table>
+      <p class="hint" style="margin-top:8px">Return time assumes the astronaut retraces the outbound path. Slope uphill and downhill cost differently, so out and back are not equal.</p>
+    </section>
+  </aside>
+</div>
+
+<script>
+(() => {
+'use strict';
+const W = 170, H = 120, N = W * H, CELL = 30;
+const $ = (id) => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = (a, b, t) => { const u = clamp((t - a) / (b - a), 0, 1); return u * u * (3 - 2 * u); };
+
+/* ---------- sample terrain (synthetic, shaped like a crater floor, rim and delta) ---------- */
+function hash(ix, iy, s) {
+  let h = (Math.imul(ix, 374761393) + Math.imul(iy, 668265263) + Math.imul(s, 1442695041)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16;
+  return (h >>> 0) / 4294967295;
+}
+function vnoise(x, y, s) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+  return lerp(lerp(hash(ix, iy, s), hash(ix + 1, iy, s), sx), lerp(hash(ix, iy + 1, s), hash(ix + 1, iy + 1, s), sx), sy);
+}
+function fbm(x, y, s, o = 4) { let t = 0, a = 0.5, f = 1; for (let i = 0; i < o; i++) { t += a * vnoise(x * f, y * f, s + i * 17); f *= 2; a *= 0.5; } return t; }
+
+const z = new Float32Array(N), slopeDeg = new Float32Array(N), ti = new Float32Array(N), softF = new Float32Array(N), shade = new Float32Array(N);
+const unit = new Uint8Array(N);
+const UNITS = [
+  { name: 'Floor regolith', color: [154, 132, 102] },
+  { name: 'Delta deposits', color: [79, 134, 198] },
+  { name: 'Rim bedrock', color: [185, 103, 74] },
+  { name: 'Dune field', color: [216, 194, 122] },
+  { name: 'Crater ejecta', color: [141, 107, 176] }
+];
+const craters = [{ x: 78, y: 84, r: 11 }, { x: 112, y: 100, r: 7 }, { x: 54, y: 36, r: 9 }, { x: 142, y: 82, r: 6 }, { x: 92, y: 18, r: 5 }];
+const DELTA = { x: 126, y: 43, R: 31 };
+
+for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+  const i = y * W + x, u = x / W, v = y / H;
+  let h = (fbm(x * 0.06, y * 0.06, 3) - 0.47) * 14;
+  h += 230 * smooth(0.30, 0.03, u) * (0.8 + 0.4 * fbm(x * 0.05, y * 0.05, 9)) + 60 * smooth(0.07, 0.02, u);
+  const dx = x - DELTA.x, dy = y - DELTA.y, ang = Math.atan2(dy, dx);
+  const Rv = DELTA.R * (1 + 0.28 * (vnoise(Math.cos(ang) * 1.8 + 7, Math.sin(ang) * 1.8 + 7, 5) * 2 - 1));
+  const dd = Math.hypot(dx, dy) / Rv;
+  const ramp = vnoise(Math.cos(ang) * 2.2 + 11, Math.sin(ang) * 2.2 + 11, 8);
+  const wid = 0.2 + 0.5 * smooth(0.52, 0.66, ramp);
+  h += 95 * smooth(1.0, 1.0 - wid, dd) + (dd < 1 ? fbm(x * 0.2, y * 0.2, 4) * 9 : 0);
+  let ej = false;
+  for (const c of craters) {
+    const d = Math.hypot(x - c.x, y - c.y), dia = c.r * 2 * CELL;
+    if (d < c.r) h -= 0.08 * dia * (1 - (d / c.r) ** 2);
+    h += 0.035 * dia * Math.exp(-(((d - c.r) / (0.28 * c.r)) ** 2));
+    if (d < c.r * 1.8) ej = true;
+  }
+  h += 9 * Math.sin(x * 0.33 + fbm(x * 0.05, y * 0.05, 13) * 7) * smooth(0.70, 0.86, v);
+  z[i] = h;
+  unit[i] = ej ? 4 : dd < 1 ? 1 : u < 0.2 ? 2 : v > 0.78 ? 3 : 0;
+}
+let zmin = Infinity, zmax = -Infinity;
+for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+  const i = y * W + x, xl = Math.max(x - 1, 0), xr = Math.min(x + 1, W - 1), yu = Math.max(y - 1, 0), yd = Math.min(y + 1, H - 1);
+  const gx = (z[y * W + xr] - z[y * W + xl]) / ((xr - xl) * CELL), gy = (z[yd * W + x] - z[yu * W + x]) / ((yd - yu) * CELL);
+  slopeDeg[i] = Math.atan(Math.hypot(gx, gy)) * 57.29578;
+  shade[i] = clamp(0.86 + 1.3 * 0.7 * (gx + gy), 0.5, 1.2);
+  zmin = Math.min(zmin, z[i]); zmax = Math.max(zmax, z[i]);
+  const u = x / W, v = y / H, dd = Math.hypot(x - DELTA.x, y - DELTA.y) / DELTA.R;
+  const rocky = clamp(slopeDeg[i] / 18, 0, 1) * 0.5 + (dd < 1 ? 0.35 : 0) + (u < 0.25 ? 0.35 : 0);
+  let t = 130 + 330 * clamp(rocky + 0.35 * (fbm(x * 0.07, y * 0.07, 21) - 0.4), 0, 1);
+  t = lerp(t, 95, smooth(0.70, 0.86, v) * 0.9);
+  ti[i] = t;
+  softF[i] = clamp((170 - t) / 80, 0, 1);
+}
+
+const TARGETS = [
+  { id: 'T1', name: 'Delta-front layered outcrop', kind: 'Delta deposits', val: 0.9, x: 104, y: 50 },
+  { id: 'T2', name: 'Rim bedrock contact', kind: 'Rim bedrock', val: 0.7, x: 36, y: 58 },
+  { id: 'T3', name: 'Fresh crater ejecta blocks', kind: 'Crater ejecta', val: 0.5, x: 84, y: 86 },
+  { id: 'T4', name: 'Delta-top channel deposits', kind: 'Delta deposits', val: 0.8, x: 136, y: 30 },
+  { id: 'T5', name: 'Dune margin sample', kind: 'Dune field', val: 0.3, x: 120, y: 92 }
+];
+TARGETS.forEach(t => t.i = t.y * W + t.x);
+
+/* ---------- state ---------- */
+const SL = {
+  res: [
+    { k: 'o2', label: 'Oxygen', min: 1, max: 8, step: 0.1, val: 4.0, fmt: v => v.toFixed(1) + ' h' },
+    { k: 'pw', label: 'Suit power', min: 1, max: 8, step: 0.1, val: 4.5, fmt: v => v.toFixed(1) + ' h' },
+    { k: 'day', label: 'Daylight left', min: 1, max: 10, step: 0.1, val: 5.5, fmt: v => v.toFixed(1) + ' h' },
+    { k: 'res', label: 'Reserve held back', min: 0, max: 40, step: 1, val: 20, fmt: v => v + ' %' },
+    { k: 'stay', label: 'Time at target', min: 0, max: 2, step: 0.05, val: 0.25, fmt: v => Math.round(v * 60) + ' min' }
+  ],
+  ter: [
+    { k: 'pace', label: 'Flat walking pace', min: 1, max: 4, step: 0.1, val: 2.5, fmt: v => v.toFixed(1) + ' km/h' },
+    { k: 'maxSlope', label: 'Hard slope limit', min: 10, max: 35, step: 1, val: 25, fmt: v => v + '°' },
+    { k: 'comfort', label: 'Comfort slope limit', min: 5, max: 25, step: 1, val: 15, fmt: v => v + '°' }
+  ]
+};
+const P = {};
+const S = { hab: 70 * W + 58, tgt: 70 * W + 120, layer: 'slope', mode: 'target', sel: 'fast', ovReach: true, ovHaz: false, ovSci: true, ovRoute: true };
+SL.res.concat(SL.ter).forEach(s => P[s.k] = s.val);
+
+function buildSliders(list, host) {
+  list.forEach(s => {
+    const d = document.createElement('div'); d.className = 'ctl';
+    d.innerHTML = `<label for="s-${s.k}">${s.label}</label><output id="o-${s.k}" for="s-${s.k}">${s.fmt(s.val)}</output>` +
+      `<input type="range" id="s-${s.k}" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.val}">`;
+    host.appendChild(d);
+    d.querySelector('input').addEventListener('input', e => {
+      P[s.k] = parseFloat(e.target.value); $('o-' + s.k).textContent = s.fmt(P[s.k]); schedule();
+    });
+  });
+}
+buildSliders(SL.res, $('ctl-res')); buildSliders(SL.ter, $('ctl-ter'));
+
+/* ---------- walking cost and planner ---------- */
+const NB = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+const BASE = { cap: Infinity, softPen: 1 };
+function edgeT(a, b, diag, m) {
+  const dist = CELL * (diag ? 1.41421356 : 1), s = (z[b] - z[a]) / dist;
+  if (Math.atan(Math.abs(s)) * 57.29578 > m.cap) return Infinity;
+  const soft = (softF[a] + softF[b]) * 0.5;
+  const v = P.pace * Math.exp(-3.5 * (Math.abs(s + 0.05) - 0.05)) * (1 - 0.45 * soft);
+  let t = dist / 1000 / v;
+  if (m.softPen > 1) t *= 1 + (m.softPen - 1) * soft;
+  return t;
+}
+function Heap() { this.k = []; this.v = []; }
+Heap.prototype.push = function (key, val) {
+  const k = this.k, v = this.v; let i = k.length; k.push(key); v.push(val);
+  while (i > 0) { const p = (i - 1) >> 1; if (k[p] <= key) break; k[i] = k[p]; v[i] = v[p]; i = p; }
+  k[i] = key; v[i] = val;
+};
+Heap.prototype.pop = function () {
+  const k = this.k, v = this.v, rk = k[0], rv = v[0], lk = k.pop(), lv = v.pop(), n = k.length;
+  if (n > 0) { let i = 0; for (;;) { let c = 2 * i + 1; if (c >= n) break; if (c + 1 < n && k[c + 1] < k[c]) c++; if (k[c] >= lk) break; k[i] = k[c]; v[i] = v[c]; i = c; } k[i] = lk; v[i] = lv; }
+  return [rk, rv];
+};
+function dijkstra(src, m, reverse) {
+  const dist = new Float64Array(N).fill(Infinity), link = new Int32Array(N).fill(-1), hp = new Heap();
+  dist[src] = 0; hp.push(0, src);
+  while (hp.k.length) {
+    const [d, u] = hp.pop(); if (d > dist[u]) continue;
+    const ux = u % W, uy = (u / W) | 0;
+    for (let q = 0; q < 8; q++) {
+      const nx = ux + NB[q][0], ny = uy + NB[q][1]; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const n = ny * W + nx, w = reverse ? edgeT(n, u, q >= 4, m) : edgeT(u, n, q >= 4, m);
+      if (w === Infinity) continue;
+      const nd = d + w; if (nd < dist[n]) { dist[n] = nd; link[n] = u; hp.push(nd, n); }
+    }
+  }
+  return { dist, link };
+}
+const pathTo = (link, src, node) => { const a = []; for (let c = node; c !== -1; c = link[c]) { a.push(c); if (c === src) break; } return a.reverse(); };
+const pathFrom = (link, from) => { const a = []; for (let c = from; c !== -1; c = link[c]) a.push(c); return a; };
+const isDiag = (a, b) => (a % W !== b % W) && (((a / W) | 0) !== ((b / W) | 0));
+
+function metrics(path, usable) {
+  let dist = 0, tOut = 0, tBack = 0, maxDeg = 0, over = 0, softM = 0;
+  for (let k = 1; k < path.length; k++) {
+    const a = path[k - 1], b = path[k], dg = isDiag(a, b), len = CELL * (dg ? 1.41421356 : 1);
+    dist += len; tOut += edgeT(a, b, dg, BASE); tBack += edgeT(b, a, dg, BASE);
+    const deg = Math.atan(Math.abs(z[b] - z[a]) / len) * 57.29578;
+    if (deg > maxDeg) maxDeg = deg; if (deg > P.comfort) over++;
+    if ((softF[a] + softF[b]) * 0.5 > 0.5) softM += len;
+  }
+  const hit = TARGETS.filter(t => path.some(c => Math.hypot((c % W) - t.x, ((c / W) | 0) - t.y) <= 4));
+  const sci = hit.reduce((s, t) => s + t.val, 0);
+  return { dist, tOut, tBack, maxDeg, over, softM, hit, sci, margin: usable - tOut - tBack };
+}
+const statusOf = (m, usable) => m.margin < 0 ? 'nogo' : m.margin < Math.max(0.2, 0.12 * usable) ? 'tight' : 'go';
+
+let R = null;
+function compute() {
+  const lim = Math.min(P.o2, P.pw, P.day);
+  const limName = lim === P.o2 ? 'Oxygen' : lim === P.pw ? 'Suit power' : 'Daylight';
+  const budget = lim * (1 - P.res / 100), usable = budget - P.stay;
+  const FM = { cap: P.maxSlope, softPen: 1 };
+  const out = dijkstra(S.hab, FM, false), back = dijkstra(S.hab, FM, true);
+  const reach = new Uint8Array(N); let cnt = 0, far = 0;
+  const hx = S.hab % W, hy = (S.hab / W) | 0;
+  if (usable > 0) for (let i = 0; i < N; i++) if (out.dist[i] + back.dist[i] <= usable) {
+    reach[i] = 1; cnt++; far = Math.max(far, Math.hypot((i % W) - hx, ((i / W) | 0) - hy) * CELL);
+  }
+  const T = S.tgt, routes = [], notes = {};
+  if (out.dist[T] < Infinity) {
+    routes.push({ id: 'fast', name: 'Fastest', color: 'var(--route-fast)', path: pathTo(out.link, S.hab, T) });
+    let SM = { cap: Math.min(P.comfort, P.maxSlope), softPen: 1.8 };
+    let fs = dijkstra(S.hab, SM, false);
+    if (fs.dist[T] === Infinity) { SM = { cap: P.maxSlope, softPen: 1.8 }; fs = dijkstra(S.hab, SM, false); notes.relaxed = true; }
+    const safePath = pathTo(fs.link, S.hab, T);
+    routes.push({ id: 'safe', name: 'Safest', color: 'var(--route-safe)', path: safePath });
+    const rs = dijkstra(T, SM, true);
+    const cands = [safePath];
+    TARGETS.forEach(t => {
+      if (t.i === T || fs.dist[t.i] === Infinity || rs.dist[t.i] === Infinity) return;
+      cands.push(pathTo(fs.link, S.hab, t.i).concat(pathFrom(rs.link, t.i).slice(1)));
+    });
+    let best = null, bestScore = -Infinity;
+    const baseOut = metrics(safePath, usable).tOut;
+    cands.forEach(p => {
+      const m = metrics(p, usable); if (m.margin < 0 && p !== safePath) return;
+      const sc = m.sci - 0.5 * Math.max(0, m.tOut - baseOut);
+      if (sc > bestScore) { bestScore = sc; best = p; }
+    });
+    routes.push({ id: 'sci', name: 'Science', color: 'var(--route-sci)', path: best || safePath });
+    routes.forEach(r => { r.m = metrics(r.path, usable); r.status = statusOf(r.m, usable); });
+  }
+  R = { lim, limName, budget, usable, out, back, reach, cnt, far, routes, notes };
+}
+
+/* ---------- drawing ---------- */
+const cv = $('cv'), ctx = cv.getContext('2d'), off = document.createElement('canvas'); off.width = W; off.height = H;
+const octx = off.getContext('2d');
+const hexStops = (a) => a.map(h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]);
+const ramp = (stops, t) => { t = clamp(t, 0, 1) * (stops.length - 1); const i = Math.min(Math.floor(t), stops.length - 2), f = t - i; return [lerp(stops[i][0], stops[i + 1][0], f), lerp(stops[i][1], stops[i + 1][1], f), lerp(stops[i][2], stops[i + 1][2], f)]; };
+const ELEV = hexStops(['#4a2f26', '#80513a', '#b98253', '#e2c58f', '#f3e6c4']);
+const THERM = hexStops(['#f3e4b4', '#dd9650', '#9a3f5a', '#2c2358']);
+const COL = { go: [74, 143, 109], warn: [207, 162, 63], stop: [196, 71, 61] };
+const mix = (c, o, a) => [lerp(c[0], o[0], a), lerp(c[1], o[1], a), lerp(c[2], o[2], a)];
+
+function renderMap() {
+  const img = octx.createImageData(W, H), d = img.data;
+  for (let i = 0; i < N; i++) {
+    let c, sh = shade[i];
+    if (S.layer === 'elev') { c = ramp(ELEV, (z[i] - zmin) / (zmax - zmin)); c = [c[0] * sh, c[1] * sh, c[2] * sh]; }
+    else if (S.layer === 'thermal') { c = ramp(THERM, (ti[i] - 90) / 380); const k = 0.85 + 0.15 * sh; c = [c[0] * k, c[1] * k, c[2] * k]; }
+    else if (S.layer === 'geo') { c = UNITS[unit[i]].color; const k = 0.78 + 0.22 * sh; c = [c[0] * k, c[1] * k, c[2] * k]; }
+    else { const dg = slopeDeg[i]; c = dg > P.maxSlope ? COL.stop : dg > P.comfort ? COL.warn : COL.go; const k = 0.55 + 0.45 * sh; c = [c[0] * k, c[1] * k, c[2] * k]; }
+    if (S.ovHaz && S.layer !== 'slope') { const dg = slopeDeg[i]; if (dg > P.maxSlope) c = mix(c, COL.stop, 0.55); else if (dg > P.comfort) c = mix(c, COL.warn, 0.3); }
+    if (S.ovReach && R.cnt) {
+      if (R.reach[i]) {
+        const x = i % W, y = (i / W) | 0; let edge = false;
+        for (let q = 0; q < 4 && !edge; q++) { const nx = x + NB[q][0], ny = y + NB[q][1]; if (nx < 0 || ny < 0 || nx >= W || ny >= H || !R.reach[ny * W + nx]) edge = true; }
+        c = edge ? [255, 255, 255] : mix(c, [60, 230, 170], S.layer === 'slope' ? 0.18 : 0.26);
+      }
+    }
+    const o = i * 4; d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255;
+  }
+  octx.putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(off, 0, 0, cv.width, cv.height);
+}
+const pct = (i) => [((i % W) + 0.5) / W * 100, (((i / W) | 0) + 0.5) / H * 100];
+function chaikin(pts) { if (pts.length < 3) return pts; const o = [pts[0]]; for (let k = 0; k < pts.length - 1; k++) { const a = pts[k], b = pts[k + 1]; o.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25], [a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]); } o.push(pts[pts.length - 1]); return o; }
+function renderOverlay() {
+  const svg = $('routes'); let h = '';
+  if (S.ovRoute) {
+    const order = R.routes.filter(r => r.id !== S.sel).concat(R.routes.filter(r => r.id === S.sel));
+    order.forEach(r => {
+      const pts = chaikin(chaikin(r.path.map(c => [(c % W) + 0.5, ((c / W) | 0) + 0.5]))).map(p => p[0].toFixed(2) + ',' + p[1].toFixed(2)).join(' ');
+      const on = r.id === S.sel;
+      h += `<polyline points="${pts}" stroke="rgba(8,10,12,.88)" stroke-width="${on ? 7 : 5}" opacity="${on ? 1 : .75}"/>`;
+      h += `<polyline points="${pts}" stroke="${getComputedStyle(document.documentElement).getPropertyValue('--route-' + (r.id === 'fast' ? 'fast' : r.id === 'safe' ? 'safe' : 'sci')).trim()}" stroke-width="${on ? 3.5 : 2}" ${on ? '' : 'stroke-dasharray="6 5"'} opacity="${on ? 1 : .9}"/>`;
+    });
+  }
+  svg.innerHTML = h;
+  let m = '';
+  if (S.ovSci) TARGETS.forEach(t => { const p = pct(t.i); m += `<div class="mk sci" style="left:${p[0]}%;top:${p[1]}%"><i></i><span>${t.id}</span></div>`; });
+  const hp = pct(S.hab), tp = pct(S.tgt);
+  m += `<div class="mk hab" style="left:${hp[0]}%;top:${hp[1]}%"><i></i><span>HAB</span></div>`;
+  m += `<div class="mk tgt" style="left:${tp[0]}%;top:${tp[1]}%"><i></i><span>TARGET</span></div>`;
+  $('markers').innerHTML = m;
+}
+function renderLegend() {
+  const sw = (c, t) => `<span><i style="background:${c}"></i>${t}</span>`;
+  const rgb = a => `rgb(${a[0]},${a[1]},${a[2]})`;
+  let h = '';
+  if (S.layer === 'slope') h = sw(rgb(COL.go), `Up to ${P.comfort}°`) + sw(rgb(COL.warn), `${P.comfort}–${P.maxSlope}°`) + sw(rgb(COL.stop), `Over ${P.maxSlope}° (no-go)`);
+  else if (S.layer === 'elev') h = `<span><i style="background:linear-gradient(90deg,#4a2f26,#b98253,#f3e6c4);width:60px"></i>Low to high, ${Math.round(zmax - zmin)} m relief</span>`;
+  else if (S.layer === 'thermal') h = `<span><i style="background:linear-gradient(90deg,#f3e4b4,#dd9650,#9a3f5a,#2c2358);width:60px"></i>Loose dust to solid rock (sample thermal inertia). Soft ground is slower.</span>`;
+  else h = UNITS.map(u => sw(rgb(u.color), u.name)).join('');
+  if (S.ovReach) h += `<span><i style="background:rgb(60,230,170);opacity:.7"></i>Reach zone: out and back within budget</span>`;
+  $('legend').innerHTML = h;
+}
+
+/* ---------- text ---------- */
+const fmtT = (h) => { const m = Math.round(Math.abs(h) * 60); return (h < 0 ? '-' : '') + (m >= 60 ? Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0') + ' min' : m + ' min'); };
+const km = (m) => (m / 1000).toFixed(2) + ' km';
+const STAT = { go: 'GO', tight: 'TIGHT', nogo: 'NO-GO' };
+
+function renderResults() {
+  const r = R, lim = r.lim;
+  $('b-big').innerHTML = r.usable > 0 ? `${fmtT(r.usable)}` : 'None';
+  $('b-sub').textContent = r.usable > 0
+    ? `${r.limName} is the limit at ${lim.toFixed(1)} h. After ${P.res}% reserve and ${Math.round(P.stay * 60)} min at the target, this is the time for walking out and back.`
+    : 'Reserve and time at target use up the whole clock. Raise the limiting resource or lower them.';
+  $('f-area').textContent = r.cnt ? (r.cnt * CELL * CELL / 1e6).toFixed(1) + ' km²' : '0 km²';
+  $('f-far').textContent = r.cnt ? km(r.far) : '-';
+  const hx = S.hab % W, hy = (S.hab / W) | 0, tx = S.tgt % W, ty = (S.tgt / W) | 0;
+  $('f-tdist').textContent = km(Math.hypot(tx - hx, ty - hy) * CELL) + ' straight';
+  $('f-stay').textContent = Math.round(P.stay * 60) + ' min';
+  const al = $('alert');
+  if (!r.routes.length) { al.hidden = false; al.textContent = `No path to the target under the ${P.maxSlope}° hard slope limit. Move the target or raise the limit.`; }
+  else if (r.notes.relaxed) { al.hidden = false; al.style.color = 'var(--warn)'; al.style.borderColor = 'var(--warn)'; al.textContent = `No path stays under ${P.comfort}°. Safest and Science use the best available path under ${P.maxSlope}°.`; }
+  else { al.hidden = true; al.style.color = ''; al.style.borderColor = ''; }
+
+  const host = $('routecards');
+  if (!r.routes.length) { host.innerHTML = '<p class="hint">Place the target on ground that can be reached.</p>'; $('brief').innerHTML = ''; $('brief-title').textContent = 'Briefing'; return; }
+  host.innerHTML = r.routes.map(rt => {
+    const m = rt.m;
+    return `<button type="button" class="route" data-id="${rt.id}" aria-pressed="${rt.id === S.sel}">
+      <span class="r-head"><i class="sw" style="--c:${rt.color}"></i><b>${rt.name}</b><span class="pill ${rt.status}">${STAT[rt.status]}</span></span>
+      <dl class="r-grid">
+        <div><dt>Distance</dt><dd>${km(m.dist)}</dd></div>
+        <div><dt>Out</dt><dd>${fmtT(m.tOut)}</dd></div>
+        <div><dt>Back</dt><dd>${fmtT(m.tBack)}</dd></div>
+        <div><dt>Steepest</dt><dd>${m.maxDeg.toFixed(0)}°</dd></div>
+        <div><dt>Margin</dt><dd>${m.margin >= 0 ? '+' : ''}${fmtT(m.margin)}</dd></div>
+        <div><dt>Science</dt><dd>${m.sci.toFixed(1)}</dd></div>
+      </dl></button>`;
+  }).join('');
+  host.querySelectorAll('.route').forEach(b => b.addEventListener('click', () => { S.sel = b.dataset.id; draw(); }));
+  renderBrief();
+}
+function renderBrief() {
+  const r = R, rt = r.routes.find(x => x.id === S.sel) || r.routes[0], f = r.routes[0], sf = r.routes[1], m = rt.m, L = [];
+  $('brief-title').textContent = rt.name + ' route briefing';
+  L.push(`${km(m.dist)} out in ${fmtT(m.tOut)}. Retracing it back takes ${fmtT(m.tBack)}, so the walk uses ${fmtT(m.tOut + m.tBack)} of ${fmtT(r.usable)}.`);
+  L.push(m.margin >= 0 ? `Margin at the habitat: ${fmtT(m.margin)} after ${Math.round(P.stay * 60)} min at the target.` : `Over budget by ${fmtT(-m.margin)}. Shorten the stay, pick a nearer target or add resources.`);
+  L.push(`Steepest step ${m.maxDeg.toFixed(0)}°. ${m.over ? m.over + ' steps are steeper than the ' + P.comfort + '° comfort limit.' : 'No step exceeds the ' + P.comfort + '° comfort limit.'} ${m.softM ? Math.round(m.softM) + ' m of the path crosses soft ground.' : 'No soft ground on the path.'}`);
+  if (rt.id !== 'fast') {
+    const dd = m.dist - f.m.dist, dt = (m.tOut + m.tBack) - (f.m.tOut + f.m.tBack);
+    L.push(`Compared with Fastest: ${Math.abs(Math.round(dd))} m ${dd >= 0 ? 'longer' : 'shorter'}, ${fmtT(Math.abs(dt))} ${dt >= 0 ? 'more' : 'less'} round trip, peak slope ${m.maxDeg.toFixed(0)}° instead of ${f.m.maxDeg.toFixed(0)}°.`);
+  }
+  if (rt.id === 'sci') {
+    const names = m.hit.map(t => `${t.id} ${t.name}`);
+    L.push(names.length ? `Passes within 120 m of ${names.join('; ')}. Science value ${m.sci.toFixed(1)}.` : 'No science target lies within budget along this path.');
+    const dt = (m.tOut + m.tBack) - (sf.m.tOut + sf.m.tBack);
+    if (Math.abs(dt) > 0.01) L.push(`Costs ${fmtT(Math.abs(dt))} ${dt >= 0 ? 'more' : 'less'} than Safest.`);
+  }
+  $('brief').innerHTML = L.map(t => `<li>${t}</li>`).join('');
+}
+
+/* ---------- readout and input ---------- */
+function readout(i) {
+  const x = i % W, y = (i / W) | 0, o = R.out.dist[i], b = R.back.dist[i];
+  let line;
+  if (slopeDeg[i] > P.maxSlope) line = `<b>No-go slope</b> at this cell.`;
+  else if (o === Infinity || b === Infinity) line = `Not reachable under the slope limit.`;
+  else { const tot = o + b, mg = R.usable - tot; line = `Out <b>${fmtT(o)}</b> · back <b>${fmtT(b)}</b> · ${mg >= 0 ? 'margin <b>' + fmtT(mg) + '</b>' : '<b>outside budget by ' + fmtT(-mg) + '</b>'}`; }
+  $('readout').innerHTML = `x ${(x * CELL).toLocaleString()} m, y ${(y * CELL).toLocaleString()} m · elev ${(z[i] - z[S.hab] >= 0 ? '+' : '') + Math.round(z[i] - z[S.hab])} m vs habitat · slope <b>${slopeDeg[i].toFixed(0)}°</b> · thermal inertia ${Math.round(ti[i])} · ${UNITS[unit[i]].name}<br>${line}`;
+}
+function cellAt(e) {
+  const r = $('map').getBoundingClientRect();
+  return { x: clamp(Math.floor((e.clientX - r.left) / r.width * W), 0, W - 1), y: clamp(Math.floor((e.clientY - r.top) / r.height * H), 0, H - 1) };
+}
+$('map').addEventListener('pointermove', e => { const c = cellAt(e); readout(c.y * W + c.x); });
+$('map').addEventListener('click', e => {
+  const c = cellAt(e);
+  if (S.mode === 'hab') S.hab = c.y * W + c.x;
+  else { let idx = c.y * W + c.x; const t = TARGETS.find(t => Math.hypot(t.x - c.x, t.y - c.y) <= 2.5); if (t) idx = t.i; S.tgt = idx; }
+  draw();
+});
+$('map').addEventListener('keydown', e => {
+  const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key]; if (!d) return;
+  e.preventDefault(); const st = e.shiftKey ? 10 : 3, k = S.mode === 'hab' ? 'hab' : 'tgt';
+  S[k] = clamp(((S[k] / W) | 0) + d[1] * st, 0, H - 1) * W + clamp((S[k] % W) + d[0] * st, 0, W - 1); draw();
+});
+function pressGroup(id, attr, fn) {
+  const g = $(id); g.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    g.querySelectorAll('button').forEach(o => o.setAttribute('aria-pressed', o === b)); fn(b.dataset[attr]);
+  }));
+}
+pressGroup('layers', 'l', v => { S.layer = v; draw(); });
+pressGroup('mode', 'm', v => { S.mode = v; });
+[['ov-reach', 'ovReach'], ['ov-haz', 'ovHaz'], ['ov-sci', 'ovSci'], ['ov-route', 'ovRoute']].forEach(([id, k]) => $(id).addEventListener('change', e => { S[k] = e.target.checked; draw(true); }));
+$('targets').innerHTML = TARGETS.map(t => `<li><button type="button" data-i="${t.i}" aria-pressed="false"><span class="id">${t.id}</span><span class="nm">${t.name}<small>${t.kind}</small></span><span class="v">${t.val.toFixed(1)}</span></button></li>`).join('');
+$('targets').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { S.tgt = +b.dataset.i; draw(); }));
+$('theme').addEventListener('click', () => {
+  const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+  document.documentElement.dataset.theme = cur === 'light' ? 'dark' : 'light'; renderOverlay();
+});
+
+let pending = false;
+function schedule() { if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; draw(); }); } }
+function draw(skipCompute) {
+  if (!skipCompute) compute();
+  if (!R.routes.find(r => r.id === S.sel)) S.sel = 'fast';
+  renderMap(); renderOverlay(); renderLegend(); renderResults();
+  $('targets').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', +b.dataset.i === S.tgt));
+  readout(S.tgt);
+}
+draw();
+window.walkback = { S, P, get R() { return R; }, draw, TARGETS, slopeDeg, W, H };
+})();
+</script>
+
+</body></html>

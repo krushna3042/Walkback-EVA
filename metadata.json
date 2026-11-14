@@ -1,0 +1,7 @@
+{
+  "name": "Walkback EVA Planner",
+  "description": "EVA range and route planner for Mars astronauts and mission controllers answering where an astronaut can safely explore and walk back before consumables expire.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
